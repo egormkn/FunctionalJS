@@ -2,13 +2,16 @@
 
 /**
  * Lambda calculus experiments: Church booleans,
- * numerals, pairs and standard terms
+ * numerals
  *
- * @author Egor Makarenko
+ * @todo pairs and standard terms
  * @see https://habrahabr.ru/post/215807/ : λ-исчисление. Часть первая: история и теория
  * @see https://habrahabr.ru/post/215991/ : λ-исчисление. Часть вторая: практика
  * @see https://habrahabr.ru/post/322052/ : Лямбда-исчисление на JavaScript
+ * @author Egor Makarenko
  */
+
+/************************ Church booleans *************************/
 
 const True = t => f => t;
 const False = t => f => f;
@@ -47,6 +50,14 @@ const If = c => t => f => c(t)(f);
 // `If` returns the boolean function applied to its arguments
 console.assert(If(True)(1)(2) === 1);
 console.assert(If(False)(1)(2) === 2);
+
+const Bool = c => c(true)(false);
+
+// `Bool` returns the boolean representation of Church boolean
+console.assert(Bool(True) === true);
+console.assert(Bool(False) === false);
+
+/************************ Church numerals *************************/
 
 const Zero = f => x => x;
 const One = f => x => f(x);
@@ -108,23 +119,24 @@ console.assert(Int(Dec(Zero)) === 0);
 console.assert(Int(Dec(Inc(Zero))) === 0);
 console.assert(Int(Dec(Two)) === 1);
 
-/****************************************************************/
+const Peano = n => n === 0 ? Zero : Inc(Peano(n - 1));
 
-const Peano = i => i === 0 ? Zero : Inc(Peano(i - 1));
-console.log(Int(Peano(100000000))); // FIXME Maximum call stack size exceeded
+// `Peano` applies Inc to Zero n times
+console.assert(Int(Peano(10)) === 10); // FIXME Maximum call stack size exceeded
 
-const Add = a => b => a(Inc)(b);
-const Sub = a => b => a(Dec)(b);
-const Mul = a => b => a(Add(b))(Zero);
+const Add = a => b => b(Inc)(a);
+const Sub = a => b => b(Dec)(a);
+const Mul = a => b => b(Add(a))(Zero);
 const Pow = a => b => b(Mul(a))(One);
 const Tetration = a => b => b(Pow(a))(One);
 
-
-console.log(Int(Dec(Inc(Inc(Inc(Inc(Zero)))))));
-
-console.assert(Int(Inc(Inc(Inc(Inc(Zero))))) === 4);
-
-
-//console.log(Int(Three));
-
-// let If = b => t => f => b(t)(f);
+// `Add` calls Inc(a) b times
+// `Sub` calls Dec(a) b times
+// `Mul` calls Add(a) on Zero b times
+// `Pow` calls Mul(a) on One b times
+// `Tetration` calls Pow(a) on One b times
+console.assert(Int(Add(Peano(20))(Peano(10))) === 30);
+console.assert(Int(Sub(Peano(20))(Peano(10))) === 10);
+console.assert(Int(Mul(Peano(2))(Peano(10))) === 20);
+console.assert(Int(Pow(Peano(2))(Peano(10))) === 1024);
+console.assert(Int(Tetration(Peano(2))(Peano(3))) === 16);
