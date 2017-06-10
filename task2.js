@@ -100,7 +100,7 @@ let Parser = function (expression) {
 
 Parser.prototype = {
     toString: function () {
-        return "Parser[position: " + this.position + ", expression: " + this.expression + "]";
+        return this.expression.substring(0, this.position) + " >>>" + this.expression[this.position] + "<<< " + this.expression.substring(this.position + 1);
     },
     parseBinary: function (operator, first, next, binary) {
         if (this.position >= this.expression.length) {
@@ -128,6 +128,18 @@ Parser.prototype = {
             this.position++;
             return new Node("!", [this.parseUnary()]);
         } else if (this.expression.startsWith("(", this.position)) {
+            let i = this.position + 1, balance = 1;
+            for (; balance !== 0 && i < this.expression.length; ++i) {
+                if (this.expression[i] === "(") {
+                    balance++;
+                } else if (this.expression[i] === ")") {
+                    balance--;
+                }
+            }
+            if (i < this.expression.length && /[=+*'’]/.test(this.expression[i])) {
+                return this.parsePredicate();
+            }
+
             this.position++;
             let expr = this.parseExpression();
             if (this.expression.startsWith(")", this.position)) {
@@ -181,7 +193,8 @@ Parser.prototype = {
             }
         } else {
             let args = [this.parseAdd()];
-            if (this.expression[this.position++] !== "=") throw new Error("Equals sign expected: " + this.toString());
+            if (this.expression[this.position] !== "=") throw new Error("Equals sign expected: " + this.toString());
+            this.position++;
             args.push(this.parseAdd());
             return new Node("=", args);
         }
@@ -241,10 +254,18 @@ Parser.prototype = {
     }
 };
 
-let Checker = function (hypotheses, data, result) {
-    this.hypotheses = hypotheses;
-    this.data = data;
-    this.result = result;
+let Checker = function (hypotheses, expressions, result) {
+    this.hypothesesData = hypotheses;
+    this.expressionsData = expressions;
+    this.resultData = result;
+    this.MP = {};
+    this.expressions = this.expressionsData.map(e => new Parser(e).parseExpression());
+    this.hypotheses = this.hypothesesData.map(e => new Parser(e).parseExpression());
+    this.expressionsIndex = {};
+    this.hypothesesIndex = {};
+    for (let i = 0; i < this.hypotheses.length; ++i) {
+        this.hypothesesIndex[this.hypotheses[i].string] = i;
+    }
 };
 
 Checker.prototype = {
@@ -270,35 +291,25 @@ Checker.prototype = {
         "a*0=0",                      // A7
         "a*b'=a*b+a"                  // A8
     ].map(e => new Parser(e).parseExpression()),
-    expressions: [],
-    expressionsIndex: {},
-    MP: {},
     checkProof: function () {
-        let proof = [this.hypotheses.join() + "|-" + this.result];
-
-        this.hypotheses = this.hypotheses.map(h => new Parser(h).parseExpression());
-        this.hypothesesIndex = this.hypotheses.reduce((accumulator, current, index) => {
-            accumulator[current.string] = index;
-            return accumulator;
-        }, {});
-
-        for (let i = 0; i < this.data.length; i++) {
+        let proof = [this.hypothesesData.join() + "|-" + this.resultData], failed = 0;
+        for (let i = 0; i < this.expressionsData.length; i++) {
             let result = "Не доказано";
             try {
-                result = this.checkExpression(new Parser(this.data[i]).parseExpression());
+                result = this.checkExpression(i);
             } catch (error) {
+                failed++;
                 console.log("Вывод некорректен начиная с формулы номер " + (i + 1) + ": " + error.message);
             }
-            proof.push("(" + (i + 1) + ") " + this.data[i] + " (" + result + ")");
+            proof.push("(" + (i + 1) + ") " + this.expressionsData[i] + " (" + result + ")");
+        }
+        if (failed > 0) {
+            console.log("Не доказано: " + failed);
         }
         return proof;
     },
-    deduceProof: function () {
-
-    },
-    checkExpression: function (expression) {
-        let index = this.expressions.length;
-        this.expressions.push(expression);
+    checkExpression: function (index) {
+        let expression = this.expressions[index];
         this.expressionsIndex[expression.string] = index;
         if (expression.key === "->") {
             let [leftArg, rightArg] = expression.args.map(e => e.string);
@@ -311,8 +322,8 @@ Checker.prototype = {
             let quantification = this.checkQuantification(leftArg, rightArg);
             if (quantification.number !== undefined) {
                 if (!quantification.error) {
-                    return "Пр. вывода " + quantification.quantifier + " из " + (quantification.hypothesisUsed ? "гипотезы " : "") + (quantification.number + 1);
-                } else if (hypothesisUsed) {
+                    return "Пр. вывода " + quantification.quantifier + " из " + (quantification.hypothesisUsed ? "предп. " : "") + (quantification.number + 1);
+                } else if (quantification.hypothesisUsed) {
                     throw new Error("используется правило с квантором по переменной " + quantification.variable + ", входящей свободно в допущение " + (quantification.number + 1));
                 } else {
                     throw new Error("переменная " + quantification.variable + " входит свободно в формулу " + (quantification.number + 1));
@@ -326,6 +337,11 @@ Checker.prototype = {
                 } else {
                     return "терм " + quantificationAxioms.term + " не свободен для подстановки в формулу " + quantificationAxioms.formula + " вместо переменной " + quantificationAxioms.variable;
                 }
+            }
+
+            let induction = this.checkInduction(leftArg, rightArg);
+            if (induction.variable !== undefined) {
+                return "Сх. акс. A9";
             }
         }
 
@@ -351,15 +367,6 @@ Checker.prototype = {
                 return "Предп. " + (i + 1);
             }
         }
-
-
-        // TODO: A9
-        /*
-         (A9) A[x := 0] & ∀x(A → A[x := x']) → A
-
-         В схеме аксиом (A9) A — некоторая формула исчисления предикатов
-         и x — некоторая переменная, входящая свободно в A.
-         */
 
         throw new Error("Не доказано");
     },
@@ -460,6 +467,7 @@ Checker.prototype = {
                     if (false) { // Если не свободно для подстановки
                         result.term = variables[key].string;
                         result.formula = expression.string;
+                        result.error = true;
                     }
                 }
             }
@@ -475,11 +483,22 @@ Checker.prototype = {
                     if (false) { // Если не свободно для подстановки
                         result.term = variables[key].string;
                         result.formula = expression.string;
+                        result.error = true;
                     }
                 }
             }
         }
         return result;
+    },
+    checkInduction: function (leftArg, rightArg) {
+        // TODO: A9
+        /*
+         (A9) A[x := 0] & ∀x(A → A[x := x']) → A
+
+         В схеме аксиом (A9) A — некоторая формула исчисления предикатов
+         и x — некоторая переменная, входящая свободно в A.
+         */
+        return {};
     },
     compareTrees: function (expression, axiom, variables) {
         if (expression === undefined || axiom === undefined) {
