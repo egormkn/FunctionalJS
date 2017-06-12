@@ -32,6 +32,7 @@
 
 const inputFile = process.argv[2] || "task2.in";
 const outputFile = process.argv[3] || "task2.out";
+const mode = process.argv[4] || "check";
 
 let Node = function (key, args) {
     this.key = key;
@@ -41,9 +42,7 @@ let Node = function (key, args) {
 
 Node.prototype = {
     toString: function () {
-        if (this.string !== undefined) {
-            return this.string;
-        }
+        if (this.string !== undefined) return this.string;
         switch (this.key) {
             case "->":
             case "=":
@@ -69,28 +68,28 @@ Node.prototype = {
         }
     },
     isIncrement: function () {
-        return /^[1-9][0-9]*$/.test(this.key);
+        return /^[1-9]/.test(this.key);
     },
     isPredicate: function () {
-        return /^[=A-Z]$/.test(this.key.charAt(0));
+        return /^[=A-Z]/.test(this.key);
     },
     isVariable: function () {
-        return /^[a-z][0-9]*$/.test(this.key);
+        return /^[a-z]/.test(this.key);
     },
     isQuantifier: function () {
-        return /^[?@]$/.test(this.key);
+        return /^[?@]/.test(this.key);
     },
-    hasFree: function (variable) {
-        if (!/^[a-z][0-9]*$/.test(variable)) {
+    hasFree: function (variableName) {
+        if (!/^[a-z][0-9]*$/.test(variableName)) {
             throw new Error("Not a variable passed as argument to hasFree()");
-        }
-        if (this.isQuantifier()) {
-            let [variableArg, expressionArg] = this.args;
-            return variableArg.string === variable ? false : expressionArg.hasFree(variable);
+        } else if (this.isQuantifier()) {
+            let [variable, expression] = this.args;
+            return variable.string === variableName ? false : expression.hasFree(variableName);
         } else if (this.args === undefined) {
-            return this.string === variable;
+            return this.string === variableName;
+        } else {
+            return this.args.reduce((accumulator, arg) => accumulator || arg.hasFree(variableName), false);
         }
-        return this.args.reduce((accumulator, arg) => accumulator || arg.hasFree(variable), false);
     },
     getFree: function () {
         if (this.isQuantifier()) {
@@ -266,6 +265,7 @@ let Checker = function (hypotheses, expressions, result) {
     this.hypothesesData = hypotheses;
     this.expressionsData = expressions;
     this.resultData = result;
+    this.result = new Parser(result).parseExpression();
     this.MP = {};
     this.expressions = [];
     this.hypotheses = this.hypothesesData.map(e => new Parser(e).parseExpression());
@@ -314,35 +314,60 @@ Checker.prototype = {
         }
         if (failed > 0) {
             console.log("Не доказано: " + failed);
+        } else if (this.expressions[this.expressions.length - 1].string !== this.result.string) {
+            console.log("Доказано не то, что требовалось");
         }
         return proof;
     },
     getDeduction: function (hypothesis, expression, result) {
+        // e => h->e
         expression = "(" + expression + ")";
+        hypothesis = "(" + hypothesis + ")";
         let deduction = [];
         if (result.startsWith("Пр. вывода @")) {
-            deduction.push("@"); // TODO
+            deduction = ["@"];
+            let [left, right] = new Parser(expression).parseExpression().args;
+            left = "(" + left.string + ")";
+            right = "(" + right.args[1].string + ")";
+            let proof = this.anyDeduction.map(e => e.replace(/HYP/g, hypothesis).replace(/LEFT/g, left).replace(/RIGHT/g, right));
+            deduction = deduction.concat(proof);
         } else if (result.startsWith("Пр. вывода ?")) {
-            deduction.push("?"); // TODO
+            deduction = ["?"];
+            let [left, right] = new Parser(expression).parseExpression().args;
+            right = "(" + right.string + ")";
+            left = "(" + left.args[1].string + ")";
+            let proof = this.existsDeduction.map(e => e.replace(/HYP/g, hypothesis).replace(/LEFT/g, left).replace(/RIGHT/g, right));
+            deduction = deduction.concat(proof);
         } else if (result.startsWith("M.P.")) {
-            deduction.push("M.P."); // TODO
+            deduction = ["MP"];
+            let [mp1, mp2] = result.substring("M.P.".length).split(", ").map(s => "(" + this.expressionsData[Number(s) - 1] + ")");
+            deduction.push("((" + hypothesis + ")->(" + mp1 + "))->(((" + hypothesis + ")->(" + mp2 + "))->((" + hypothesis + ")->(" + expression + ")))");
+            deduction.push("(((" + hypothesis + ")->(" + mp2 + "))->((" + hypothesis + ")->(" + expression + ")))");
         } else if (result.startsWith("Предп. " + this.hypothesesData.length)) {
+            deduction = ["HYP"];
             deduction.push("((A)->((A)->(A)))".replace(/A/g, expression));
             deduction.push("((A)->((A)->(A)))->((A)->(((A)->(A))->(A)))->((A)->(A))".replace(/A/g, expression));
             deduction.push("((A)->(((A)->(A))->(A)))->((A)->(A))".replace(/A/g, expression));
             deduction.push("((A)->(((A)->(A))->(A)))".replace(/A/g, expression));
         } else if (result.startsWith("Предп. ") || result.startsWith("Сх. акс.")) {
+            deduction = ["AX"];
             deduction.push(expression);
             deduction.push("((" + expression + ")->((" + hypothesis + ")->(" + expression + ")))");
         } else {
             throw new Error("Unexpected result");
         }
         deduction.push("(" + hypothesis + ")->(" + expression + ")");
-        //deduction = deduction.map(e => new Parser(e).parseExpression().string);
+        let x = deduction[0];
+        deduction.shift();
+        deduction = deduction.map(e => new Parser(e).parseExpression().string);
+        deduction.unshift(x);
         return deduction;
     },
-    deduceProof: function () {
-        let proof = [this.hypothesesData.slice(0, -1).join() + "|-" + this.resultData];
+    deduceProof: function (anyDeduction, existsDeduction) {
+        this.anyDeduction = anyDeduction;
+        this.existsDeduction = existsDeduction;
+        let resultExpr = "(" + this.hypothesesData.slice(-1).join("") + ")->(" + this.resultData + ")";
+        let proof = [this.hypothesesData.slice(0, -1).join() + "|-" + resultExpr];
         let hypothesesSize = this.hypothesesData.length;
         for (let i = 0; i < this.expressionsData.length; i++) {
             this.expressions.push(new Parser(this.expressionsData[i]).parseExpression());
@@ -425,7 +450,7 @@ Checker.prototype = {
         throw new Error(errorText);
     },
     checkModusPonens: function (expression) {
-        // A, A → B => B
+        // A, A->B => B
         let index = this.expressions.length;
         let MPInfo = this.MP[expression.string];
         if (MPInfo !== undefined) {
@@ -440,8 +465,8 @@ Checker.prototype = {
     },
     checkQuantification: function (left, right, checkDeduction = false) {
         // If there is no free 'x' in 'A'
-        // B → A => ∃xB → A
-        // A → B => A → ∀xB
+        // B->A => ∃xB->A
+        // A->B => A->∀xB
         let result = {
             error: false,
             hypothesisUsed: false,
@@ -478,8 +503,8 @@ Checker.prototype = {
     },
     checkQuantificationAxioms: function (left, right) {
         // Пусть θ свободно для подстановки вместо x в A.
-        // (11) ∀xA → A[x := θ]
-        // (12) A[x := θ] → ∃xA
+        // (11) ∀xA->A[x := θ]
+        // (12) A[x := θ]->∃xA
         /**
          Терм θ свободен для подстановки в формулу A вместо x,
          если после подстановки θ вместо свободных вхождений x
@@ -532,7 +557,7 @@ Checker.prototype = {
         return result;
     },
     checkInduction: function (leftArg, rightArg) {
-        // (A9) A[x := 0] & ∀x(A → A[x := x']) → A
+        // (A9) A[x := 0] & ∀x(A->A[x := x'])->A
         // x — некоторая переменная, входящая свободно в A
         if (leftArg.key !== "&") {
             return {};
@@ -636,7 +661,10 @@ String.prototype.splitExpressions = function (separator) {
 
 const fs = require("fs"), timer = "Время выполнения";
 console.time(timer);
-let data = fs.readFileSync(inputFile, "utf-8").split("\n").map(s => s.replace(/\s+/g, "")).filter(s => s.length > 0);
-let [hypotheses, result] = data.shift().split("|-");
-fs.writeFileSync(outputFile, new Checker(hypotheses.splitExpressions(","), data, result).deduceProof().join("\n"), "utf-8");
+let readLines = (file) => fs.readFileSync(file, "utf-8").split("\n").map(s => s.replace(/\s+/g, "")).filter(s => s.length > 0),
+    writeLines = (file, data) => fs.writeFileSync(file, data.join("\n"), "utf-8");
+let anyDeduction = readLines("any.proof"), existsDeduction = readLines("exists.proof");
+let data = readLines(inputFile), [hypotheses, result] = data.shift().split("|-");
+let checker = new Checker(hypotheses.splitExpressions(","), data, result);
+writeLines(outputFile, mode === "check" ? checker.checkProof() : checker.deduceProof(anyDeduction, existsDeduction));
 console.timeEnd(timer);
