@@ -34,14 +34,14 @@ const inputFile = process.argv[2] || "task2.in";
 const outputFile = process.argv[3] || "task2.out";
 const mode = process.argv[4] || "check";
 
-let Node = function (key, args) {
-    this.key = key;
-    this.args = args;
-    this.string = this.toString();
-};
+class Node {
+    constructor(key, args) {
+        this.key = key;
+        this.args = args;
+        this.string = this.toString();
+    }
 
-Node.prototype = {
-    toString: function () {
+    toString() {
         if (this.string !== undefined) return this.string;
         switch (this.key) {
             case "->":
@@ -59,27 +59,32 @@ Node.prototype = {
                 return this.key;
             default:
                 if (this.isIncrement()) {
-                    return this.args[0].string + new Array(parseInt(this.key) + 1).join("'");
+                    return this.args[0].string + "'".repeat(parseInt(this.key));
                 } else if (this.isPredicate() || this.isVariable()) {
                     return this.key + (this.args === undefined ? "" : "(" + this.args.map(a => a.string).join() + ")");
                 } else {
                     throw new Error("Failed to run toString() on '" + this.key + "'");
                 }
         }
-    },
-    isIncrement: function () {
+    }
+
+    isIncrement() {
         return /^[1-9]/.test(this.key);
-    },
-    isPredicate: function () {
+    }
+
+    isPredicate() {
         return /^[=A-Z]/.test(this.key);
-    },
-    isVariable: function () {
+    }
+
+    isVariable() {
         return /^[a-z]/.test(this.key);
-    },
-    isQuantifier: function () {
+    }
+
+    isQuantifier() {
         return /^[?@]/.test(this.key);
-    },
-    hasFree: function (variableName) {
+    }
+
+    hasFree(variableName) {
         if (!/^[a-z][0-9]*$/.test(variableName)) {
             throw new Error("Not a variable passed as argument to hasFree()");
         } else if (this.isQuantifier()) {
@@ -90,8 +95,9 @@ Node.prototype = {
         } else {
             return this.args.reduce((accumulator, arg) => accumulator || arg.hasFree(variableName), false);
         }
-    },
-    getFree: function () {
+    }
+
+    getFree() {
         if (this.isQuantifier()) {
             let [variable, expression] = this.args, free = expression.getFree();
             delete free[variable.string];
@@ -102,18 +108,19 @@ Node.prototype = {
             return this.args.reduce((accumulator, arg) => Object.assign(accumulator, arg.getFree()), {});
         }
     }
-};
+}
 
-let Parser = function (expression) {
-    this.expression = expression.replace(/\s+/g, "");
-    this.position = 0;
-};
+class Parser {
+    constructor(expression) {
+        this.expression = expression.replace(/\s+/g, "");
+        this.position = 0;
+    }
 
-Parser.prototype = {
-    toString: function () {
+    toString() {
         return this.expression.substring(0, this.position) + " >>>" + this.expression[this.position] + "<<< " + this.expression.substring(this.position + 1);
-    },
-    parseBinary: function (operator, first, next) {
+    }
+
+    parseBinary(operator, first, next) {
         if (this.position >= this.expression.length) {
             throw new Error("Error while parsing '" + operator + "': " + this.toString());
         }
@@ -123,17 +130,21 @@ Parser.prototype = {
             result = new Node(operator, [result, next.call(this)]);
         }
         return result;
-    },
-    parseExpression: function () {
+    }
+
+    parseExpression() {
         return this.parseBinary("->", this.parseDisjunction, this.parseExpression);
-    },
-    parseDisjunction: function () {
+    }
+
+    parseDisjunction() {
         return this.parseBinary("|", this.parseConjunction, this.parseConjunction);
-    },
-    parseConjunction: function () {
+    }
+
+    parseConjunction() {
         return this.parseBinary("&", this.parseUnary, this.parseUnary);
-    },
-    parseUnary: function () {
+    }
+
+    parseUnary() {
         if (this.expression.startsWith("!", this.position)) {
             this.position++;
             return new Node("!", [this.parseUnary()]);
@@ -143,7 +154,7 @@ Parser.prototype = {
                 if (this.expression[i] === "(") balance++;
                 if (this.expression[i] === ")") balance--;
             }
-            if (i < this.expression.length && /^[=+*'’]$/.test(this.expression[i])) {
+            if (i < this.expression.length && /^[=+*'’]/.test(this.expression[i])) {
                 return this.parsePredicate();
             }
 
@@ -155,8 +166,7 @@ Parser.prototype = {
             } else {
                 throw new Error("Parentheses not closed: " + this.toString());
             }
-        } else if (this.expression.startsWith("@", this.position)
-            || this.expression.startsWith("?", this.position)) {
+        } else if (/^[@?]/.test(this.expression[this.position])) {
             let char = this.expression[this.position++];
             let args = [this.parseVariable()];
             args.push(this.parseUnary());
@@ -164,31 +174,32 @@ Parser.prototype = {
         } else {
             return this.parsePredicate();
         }
-    },
-    parseVariable: function () {
+    }
+
+    parseVariable() {
         let name = "";
-        if (/^[a-z]$/.test(this.expression[this.position])) {
+        if (/^[a-z]/.test(this.expression[this.position])) {
             do {
                 name += this.expression[this.position++];
-            } while (/^[0-9]$/.test(this.expression[this.position]));
+            } while (/^[0-9]/.test(this.expression[this.position]));
         } else {
             throw new Error("Error while parsing variable: " + this.toString());
         }
         return new Node(name);
-    },
-    parsePredicate: function () {
+    }
+
+    parsePredicate() {
         let name = "";
-        if (/^[A-Z]$/.test(this.expression[this.position])) {
+        if (/^[A-Z]/.test(this.expression[this.position])) {
             do {
                 name += this.expression[this.position++];
-            } while (/^[0-9]$/.test(this.expression[this.position]));
+            } while (/^[0-9]/.test(this.expression[this.position]));
             if (this.expression[this.position] === "(") {
-                this.position++;
-                let args = [this.parseAdd()];
-                while (this.expression[this.position] === ",") {
+                let args = [];
+                do {
                     this.position++;
                     args.push(this.parseAdd());
-                }
+                } while (this.expression[this.position] === ",");
                 if (this.expression[this.position] === ")") {
                     this.position++;
                     return new Node(name, args);
@@ -205,35 +216,37 @@ Parser.prototype = {
             args.push(this.parseAdd());
             return new Node("=", args);
         }
-    },
-    parseAdd: function () {
+    }
+
+    parseAdd() {
         return this.parseBinary("+", this.parseMultiply, this.parseMultiply);
-    },
-    parseMultiply: function () {
+    }
+
+    parseMultiply() {
         return this.parseBinary("*", this.parseInc, this.parseInc);
-    },
-    parseInc: function () {
-        let term = this.parseTerm();
-        let counter = 0;
-        while (this.expression.startsWith("’", this.position) || this.expression.startsWith("'", this.position)) {
+    }
+
+    parseInc() {
+        let term = this.parseTerm(), counter = 0;
+        while (/^[’']/.test(this.expression[this.position])) {
             this.position++;
             counter++;
         }
         return counter === 0 ? term : new Node("" + counter, [term]);
-    },
-    parseTerm: function () {
+    }
+
+    parseTerm() {
         let name = "";
-        if (/^[a-z]$/.test(this.expression[this.position])) {
+        if (/^[a-z]/.test(this.expression[this.position])) {
             do {
                 name += this.expression[this.position++];
-            } while (/^[0-9]$/.test(this.expression[this.position]));
+            } while (/^[0-9]/.test(this.expression[this.position]));
             if (this.expression[this.position] === "(") {
-                this.position++;
-                let args = [this.parseAdd()];
-                while (this.expression[this.position] === ",") {
+                let args = [];
+                do {
                     this.position++;
                     args.push(this.parseAdd());
-                }
+                } while (this.expression[this.position] === ",");
                 if (this.expression[this.position] === ")") {
                     this.position++;
                     return new Node(name, args);
@@ -243,32 +256,34 @@ Parser.prototype = {
             } else {
                 return new Node(name);
             }
-        } else if (this.expression.startsWith("(", this.position)) {
+        } else if (this.expression[this.position] === "(") {
             this.position++;
             let expr = this.parseAdd();
-            if (this.expression.startsWith(")", this.position)) {
+            if (this.expression[this.position] === ")") {
                 this.position++;
                 return expr;
             } else {
                 throw new Error("Parentheses not closed: " + this.toString());
             }
-        } else if (this.expression.startsWith("0", this.position)) {
+        } else if (this.expression[this.position] === "0") {
             this.position++;
             return new Node("0");
         } else {
             throw new Error("Tried to parse something strange: " + this.toString());
         }
     }
-};
+}
 
 let Checker = function (hypotheses, expressions, result) {
     this.hypothesesData = hypotheses;
     this.expressionsData = expressions;
     this.resultData = result;
-    this.result = new Parser(result).parseExpression();
-    this.MP = {};
-    this.expressions = [];
+
     this.hypotheses = this.hypothesesData.map(e => new Parser(e).parseExpression());
+    this.expressions = [];
+    this.result = new Parser(result).parseExpression();
+
+    this.MP = {};
     this.expressionsIndex = {};
     this.hypothesesIndex = {};
     for (let i = 0; i < this.hypotheses.length; ++i) {
@@ -486,7 +501,7 @@ Checker.prototype = {
             }
         }
         if (right.key === "@") {
-            let hypothesisFree = this.hypotheses[this.hypotheses.length - 1].getFree();
+            let hypothesisFree = this.hypotheses.length > 0 ? this.hypotheses[this.hypotheses.length - 1].getFree() : {};
             result.quantifier = "@";
             let [variable, expression] = right.args;
             result.variable = variable.string;
