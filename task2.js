@@ -1,38 +1,11 @@
 "use strict";
 
-/*********************** Input file grammar ***********************
- *
- *        File ::= Header ‘\n’ Proof
- *      Header ::= [{Expression ‘,’}∗ Expression] ‘|-’ Expression
- *       Proof ::= {Expression ‘\n’}∗
- *  Expression ::= Disjunction
- *               | Disjunction ‘->’ Expression
- * Disjunction ::= Conjunction
- *               | Disjunction ‘|’ Conjunction
- * Conjunction ::= Unary
- *               | Conjunction ‘&’ Unary
- *       Unary ::= Predicate
- *               | ‘!’ Unary
- *               | ‘(’ Expression ‘)’
- *               | (‘@’|‘?’) Variable Unary
- *    Variable ::= (‘a’...‘z’){‘0’...‘9’}∗
- *   Predicate ::= (‘A’...‘Z’){‘0’...‘9’}∗ [‘(’ Term {‘,’ Term}∗ ‘)’]
- *               | Term ‘=’ Term
- *        Term ::= Add
- *               | Term ‘+’ Add
- *         Add ::= Multiply
- *               | Add ‘*’ Multiply
- *    Multiply ::= (‘a’...‘z’){‘0’...‘9’}∗ ‘(’ Term {‘,’ Term}∗ ‘)’
- *               | Variable
- *               | ‘(’ Term ‘)’
- *               | ‘0’
- *               | Multiply ‘’’
- *
- */
+const inputFile = process.argv[2] || "task2.in",
+    outputFile = process.argv[3] || "task2.out",
+    mode = process.argv[4] || "check";
+const fs = require("fs"), newLine = "\n", processingTime = "Время выполнения";
 
-const inputFile = process.argv[2] || "task2.in";
-const outputFile = process.argv[3] || "task2.out";
-const mode = process.argv[4] || "check";
+console.time(processingTime);
 
 class Node {
     constructor(key, args) {
@@ -50,20 +23,22 @@ class Node {
             case "&":
             case "+":
             case "*":
-                return this.args.map(arg => "(" + arg.string + ")").join(this.key);
+                return this.args.map(arg => `(${arg.string})`).join(this.key);
             case "!":
+                return `${this.key}(${this.args[0].string})`;
             case "@":
             case "?":
-                return this.key + this.args.map(arg => arg.string).join("");
+                return `${this.key}${this.args[0].string}(${this.args[1].string})`;
             case "0":
-                return this.key;
+                return `${this.key}`;
             default:
                 if (this.isIncrement()) {
-                    return this.args[0].string + "'".repeat(parseInt(this.key));
+                    return `${this.args[0].string}${"'".repeat(parseInt(this.key))}`;
                 } else if (this.isPredicate() || this.isVariable()) {
-                    return this.key + (this.args === undefined ? "" : "(" + this.args.map(a => a.string).join() + ")");
+                    let args = this.args === undefined ? "" : `(${this.args.map(a => `(${a.string})`).join()})`;
+                    return this.key + args;
                 } else {
-                    throw new Error("Failed to run toString() on '" + this.key + "'");
+                    throw new Error(`Failed to run toString() on '${this.key}'`);
                 }
         }
     }
@@ -87,25 +62,41 @@ class Node {
     hasFree(variableName) {
         if (!/^[a-z][0-9]*$/.test(variableName)) {
             throw new Error("Not a variable passed as argument to hasFree()");
+        } else if (this.args === undefined) {
+            return this.string === variableName;
         } else if (this.isQuantifier()) {
             let [variable, expression] = this.args;
             return variable.string === variableName ? false : expression.hasFree(variableName);
-        } else if (this.args === undefined) {
-            return this.string === variableName;
         } else {
             return this.args.reduce((accumulator, arg) => accumulator || arg.hasFree(variableName), false);
         }
     }
 
     getFree() {
-        if (this.isQuantifier()) {
+        if (this.args === undefined) {
+            return this.isVariable() ? {[this.string]: true} : {};
+        } else if (this.isQuantifier()) {
             let [variable, expression] = this.args, free = expression.getFree();
             delete free[variable.string];
             return free;
-        } else if (this.args === undefined) {
-            return this.isVariable() ? {[this.string]: true} : {};
         } else {
             return this.args.reduce((accumulator, arg) => Object.assign(accumulator, arg.getFree()), {});
+        }
+    }
+
+    substitute(map, free = true) {
+        if (this.args === undefined) {
+            return map.hasOwnProperty(this.key) ? map[this.key] : new Node(this.key);
+        } else if (this.isQuantifier()) {
+            let [variable, expression] = this.args;
+            let newMap = map;
+            if (free && map.hasOwnProperty(variable.string)) {
+                newMap = Object.assign({}, map);
+                delete newMap[variable.string];
+            }
+            return new Node(this.key, [variable.substitute(free ? {} : map, free), expression.substitute(newMap, free)]);
+        } else {
+            return new Node(this.key, this.args.map(arg => arg.substitute(map, free)));
         }
     }
 }
@@ -117,12 +108,14 @@ class Parser {
     }
 
     toString() {
-        return this.expression.substring(0, this.position) + " >>>" + this.expression[this.position] + "<<< " + this.expression.substring(this.position + 1);
+        return `${this.expression.substring(0, this.position)} 
+        >>>${this.expression[this.position]}<<< 
+        ${this.expression.substring(this.position + 1)}`;
     }
 
     parseBinary(operator, first, next) {
         if (this.position >= this.expression.length) {
-            throw new Error("Error while parsing '" + operator + "': " + this.toString());
+            throw new Error(`Error while parsing '${operator}': ${this.toString()}`);
         }
         let result = first.call(this);
         while (this.expression.startsWith(operator, this.position)) {
@@ -164,7 +157,7 @@ class Parser {
                 this.position++;
                 return expr;
             } else {
-                throw new Error("Parentheses not closed: " + this.toString());
+                throw new Error(`Parentheses not closed: ${this.toString()}`);
             }
         } else if (/^[@?]/.test(this.expression[this.position])) {
             let char = this.expression[this.position++];
@@ -183,7 +176,7 @@ class Parser {
                 name += this.expression[this.position++];
             } while (/^[0-9]/.test(this.expression[this.position]));
         } else {
-            throw new Error("Error while parsing variable: " + this.toString());
+            throw new Error(`Error while parsing variable: ${this.toString()}`);
         }
         return new Node(name);
     }
@@ -204,14 +197,14 @@ class Parser {
                     this.position++;
                     return new Node(name, args);
                 } else {
-                    throw new Error("Parentheses not closed: " + this.toString());
+                    throw new Error(`Parentheses not closed: ${this.toString()}`);
                 }
             } else {
                 return new Node(name);
             }
         } else {
             let args = [this.parseAdd()];
-            if (this.expression[this.position] !== "=") throw new Error("Equals sign expected: " + this.toString());
+            if (this.expression[this.position] !== "=") throw new Error(`Equals sign expected: ${this.toString()}`);
             this.position++;
             args.push(this.parseAdd());
             return new Node("=", args);
@@ -251,7 +244,7 @@ class Parser {
                     this.position++;
                     return new Node(name, args);
                 } else {
-                    throw new Error("Parentheses not closed: " + this.toString());
+                    throw new Error(`Parentheses not closed: ${this.toString()}`);
                 }
             } else {
                 return new Node(name);
@@ -263,147 +256,119 @@ class Parser {
                 this.position++;
                 return expr;
             } else {
-                throw new Error("Parentheses not closed: " + this.toString());
+                throw new Error(`Parentheses not closed: ${this.toString()}`);
             }
         } else if (this.expression[this.position] === "0") {
             this.position++;
             return new Node("0");
         } else {
-            throw new Error("Tried to parse something strange: " + this.toString());
+            throw new Error(`Tried to parse something strange: ${this.toString()}`);
         }
     }
 }
 
-let Checker = function (hypotheses, expressions, result) {
-    this.hypothesesData = hypotheses;
-    this.expressionsData = expressions;
-    this.resultData = result;
+class Checker {
+    constructor(hypothesesData, expressionsData, resultData) {
+        this.hypothesesData = [];
+        let buffer = "", count = 0;
+        for (let i = 0; i < hypothesesData.length; ++i) {
+            if (hypothesesData.charAt(i) === "(") count++;
+            if (hypothesesData.charAt(i) === ")") count--;
+            if (count === 0 && hypothesesData.charAt(i) === ",") {
+                this.hypothesesData.push(buffer);
+                buffer = "";
+            } else {
+                buffer += hypothesesData.charAt(i);
+            }
+            if (i === hypothesesData.length - 1 && buffer.length > 0) this.hypothesesData.push(buffer);
+        }
+        this.expressionsData = expressionsData;
+        this.resultData = resultData;
 
-    this.hypotheses = this.hypothesesData.map(e => new Parser(e).parseExpression());
-    this.expressions = [];
-    this.result = new Parser(result).parseExpression();
+        this.hypotheses = this.hypothesesData.map(e => new Parser(e).parseExpression());
+        this.result = new Parser(resultData).parseExpression();
 
-    this.MP = {};
-    this.expressionsIndex = {};
-    this.hypothesesIndex = {};
-    for (let i = 0; i < this.hypotheses.length; ++i) {
-        this.hypothesesIndex[this.hypotheses[i].string] = i;
+        this.hypothesesIndex = {};
+        for (let i = 0; i < this.hypotheses.length; ++i) {
+            this.hypothesesIndex[this.hypotheses[i].string] = i;
+        }
     }
-};
 
-Checker.prototype = {
-    logicAxioms: [
-        "A->B->A",                    // 1
-        "(A->B)->(A->B->C)->(A->C)",  // 2
-        "A->B->A&B",                  // 3
-        "A&B->A",                     // 4
-        "A&B->B",                     // 5
-        "A->A|B",                     // 6
-        "B->A|B",                     // 7
-        "(A->C)->(B->C)->(A|B->C)",   // 8
-        "(A->B)->(A->!B)->!A",        // 9
-        "!!A->A"                      // 10
-    ].map(e => new Parser(e).parseExpression()),
-    mathAxioms: [
-        "a=b->a'=b'",                 // A1
-        "(a=b)->(a=c)->(b=c)",        // A2
-        "a'=b'->a=b",                 // A3
-        "!a'=0",                      // A4
-        "a+b'=(a+b)'",                // A5
-        "a+0=a",                      // A6
-        "a*0=0",                      // A7
-        "a*b'=a*b+a"                  // A8
-    ].map(e => new Parser(e).parseExpression()),
-    checkProof: function () {
+    checkProof() {
+        this.MP = {};
+        this.expressions = [];
+        this.expressionsIndex = {};
         let proof = [this.hypothesesData.join() + "|-" + this.resultData], failed = 0;
         for (let i = 0; i < this.expressionsData.length; i++) {
-            this.expressions.push(new Parser(this.expressionsData[i]).parseExpression());
-            let result = "Не доказано";
+            let result = `Не доказано`;
+            try {
+                result = this.checkExpression(i, false);
+            } catch (error) {
+                failed++;
+                console.log(`Ошибка в доказательстве формулы номер ${i + 1}: ${error.message}`);
+            }
+            proof.push(`(${i + 1}) ${this.expressions[i].string} (${result})`);
+        }
+        if (failed > 0) {
+            console.log(`Не доказано: ${failed}`);
+        } else if (this.expressions[this.expressions.length - 1].string !== this.result.string) {
+            console.log(`Доказано не то, что требовалось`);
+        }
+        return proof;
+    }
+
+    deduceProof() {
+        this.MP = {};
+        this.expressions = [];
+        this.expressionsIndex = {};
+        let size = this.hypothesesData.length,
+            result = size === 0 ? this.resultData : `(${this.hypothesesData[size - 1]})->(${this.resultData})`,
+            proof = [this.hypothesesData.slice(0, -1).join() + "|-" + result];
+
+        for (let i = 0; i < this.expressionsData.length; i++) {
+            let result = `Не доказано`;
             try {
                 result = this.checkExpression(i, true);
             } catch (error) {
-                failed++;
-                console.log("Вывод некорректен начиная с формулы номер " + (i + 1) + ": " + error.message);
+                proof = [`Вывод некорректен начиная с формулы номер ${i + 1}: ${error.message}`];
+                break;
             }
-            proof.push("(" + (i + 1) + ") " + this.expressions[i].string + " (" + result + ")");
-        }
-        if (failed > 0) {
-            console.log("Не доказано: " + failed);
-        } else if (this.expressions[this.expressions.length - 1].string !== this.result.string) {
-            console.log("Доказано не то, что требовалось");
+            if (size === 0) {
+                proof.push(this.expressionsData[i]);
+            } else {
+                let deduction = this.getDeduction(this.hypotheses[size - 1], this.expressions[i], result);
+                proof = proof.concat(deduction);
+            }
         }
         return proof;
-    },
-    getDeduction: function (hypothesis, expression, result) {
-        // e => h->e
-        expression = "(" + expression + ")";
-        hypothesis = "(" + hypothesis + ")";
-        let deduction = [];
+    }
+
+    getDeduction(hypothesis, expression, result) {
         if (result.startsWith("Пр. вывода @")) {
-            deduction = ["@"];
-            let [left, right] = new Parser(expression).parseExpression().args;
-            left = "(" + left.string + ")";
-            right = "(" + right.args[1].string + ")";
-            let proof = this.anyDeduction.map(e => e.replace(/HYP/g, hypothesis).replace(/LEFT/g, left).replace(/RIGHT/g, right));
-            deduction = deduction.concat(proof);
+            let [left, right] = expression.args;
+            let [variable, expr] = right.args;
+            return Checker.anyDeduction.map(e => e.substitute({"H": hypothesis, "A": left, "B": expr, "x": variable}, false));
         } else if (result.startsWith("Пр. вывода ?")) {
-            deduction = ["?"];
-            let [left, right] = new Parser(expression).parseExpression().args;
-            right = "(" + right.string + ")";
-            left = "(" + left.args[1].string + ")";
-            let proof = this.existsDeduction.map(e => e.replace(/HYP/g, hypothesis).replace(/LEFT/g, left).replace(/RIGHT/g, right));
-            deduction = deduction.concat(proof);
-        } else if (result.startsWith("M.P.")) {
-            deduction = ["MP"];
-            let [mp1, mp2] = result.substring("M.P.".length).split(", ").map(s => "(" + this.expressionsData[Number(s) - 1] + ")");
-            deduction.push("((" + hypothesis + ")->(" + mp1 + "))->(((" + hypothesis + ")->(" + mp2 + "))->((" + hypothesis + ")->(" + expression + ")))");
-            deduction.push("(((" + hypothesis + ")->(" + mp2 + "))->((" + hypothesis + ")->(" + expression + ")))");
+            let [left, right] = expression.args;
+            let [variable, expr] = left.args;
+            return Checker.existsDeduction.map(e => e.substitute({"H": hypothesis, "A": expr, "B": right, "x": variable}, false));
+        } else if (result.startsWith("M.P. ")) {
+            let [mp1, mp2] = result.substring("M.P. ".length).split(", ").map(s => Number(s) - 1);
+            let [left, right] = this.expressions[mp2].args;
+            return Checker.modusPonensDeduction.map(e => e.substitute({"H": hypothesis, "A": left, "B": right}));
         } else if (result.startsWith("Предп. " + this.hypothesesData.length)) {
-            deduction = ["HYP"];
-            deduction.push("((A)->((A)->(A)))".replace(/A/g, expression));
-            deduction.push("((A)->((A)->(A)))->((A)->(((A)->(A))->(A)))->((A)->(A))".replace(/A/g, expression));
-            deduction.push("((A)->(((A)->(A))->(A)))->((A)->(A))".replace(/A/g, expression));
-            deduction.push("((A)->(((A)->(A))->(A)))".replace(/A/g, expression));
+            return Checker.selfDeduction.map(e => e.substitute({"H": hypothesis}));
         } else if (result.startsWith("Предп. ") || result.startsWith("Сх. акс.")) {
-            deduction = ["AX"];
-            deduction.push(expression);
-            deduction.push("((" + expression + ")->((" + hypothesis + ")->(" + expression + ")))");
+            return Checker.axiomDeduction.map(e => e.substitute({"H": hypothesis, "A": expression}));
         } else {
             throw new Error("Unexpected result");
         }
-        deduction.push("(" + hypothesis + ")->(" + expression + ")");
-        let x = deduction[0];
-        deduction.shift();
-        deduction = deduction.map(e => new Parser(e).parseExpression().string);
-        deduction.unshift(x);
-        return deduction;
-    },
-    deduceProof: function (anyDeduction, existsDeduction) {
-        this.anyDeduction = anyDeduction;
-        this.existsDeduction = existsDeduction;
-        let resultExpr = "(" + this.hypothesesData.slice(-1).join("") + ")->(" + this.resultData + ")";
-        let proof = [this.hypothesesData.slice(0, -1).join() + "|-" + resultExpr];
-        let hypothesesSize = this.hypothesesData.length;
-        for (let i = 0; i < this.expressionsData.length; i++) {
-            this.expressions.push(new Parser(this.expressionsData[i]).parseExpression());
-            let result = "Не доказано";
-            try {
-                result = this.checkExpression(i, true);
-            } catch (error) {
-                let message = error.message !== undefined ? ": " + error.message : "";
-                proof = ["Вывод некорректен начиная с формулы номер " + (i + 1) + message];
-                break;
-            }
-            if (hypothesesSize === 0) {
-                proof.push(this.expressionsData[i]);
-            } else {
-                proof = proof.concat(this.getDeduction(this.hypothesesData[hypothesesSize - 1], this.expressionsData[i], result));
-            }
-        }
-        return proof;
-    },
-    checkExpression: function (index, checkDeduction = false) {
-        let expression = this.expressions[index], errorText = "Не доказано";
+    }
+
+
+    checkExpression(index, checkDeduction = false) {
+        this.expressions.push(new Parser(this.expressionsData[index]).parseExpression());
+        let expression = this.expressions[index], errorText = `Не доказано`;
         this.expressionsIndex[expression.string] = index;
         if (expression.key === "->") {
             let [leftArg, rightArg] = expression.args.map(e => e.string);
@@ -416,69 +381,70 @@ Checker.prototype = {
             let quantification = this.checkQuantification(leftArg, rightArg, checkDeduction);
             if (quantification.number !== undefined) {
                 if (!quantification.error) {
-                    return "Пр. вывода " + quantification.quantifier + " из " + (quantification.hypothesisUsed ? "предп. " : "") + (quantification.number + 1);
+                    return `Пр. вывода ${quantification.quantifier} из ${quantification.number + 1}`;
                 } else if (quantification.hypothesisUsed) {
-                    errorText = "используется правило с квантором по переменной " + quantification.variable + ", входящей свободно в допущение " + (quantification.number + 1);
+                    errorText = `используется правило с квантором по переменной ${quantification.variable}, входящей свободно в допущение ${quantification.number + 1}`;
                 } else {
-                    errorText = "переменная " + quantification.variable + " входит свободно в формулу " + (quantification.number + 1);
+                    errorText = `переменная ${quantification.variable} входит свободно в формулу ${quantification.number + 1}`;
                 }
             }
 
             let quantificationAxioms = this.checkQuantificationAxioms(leftArg, rightArg);
             if (quantificationAxioms.axiom !== undefined) {
                 if (!quantificationAxioms.error) {
-                    return "Сх. акс. A" + (quantificationAxioms.axiom + 1);
+                    return `Сх. акс. A${quantificationAxioms.axiom + 1}`;
                 } else {
-                    errorText = "терм " + quantificationAxioms.term + " не свободен для подстановки в формулу " + quantificationAxioms.formula + " вместо переменной " + quantificationAxioms.variable;
+                    errorText = `терм ${quantificationAxioms.term} не свободен для подстановки в формулу ${quantificationAxioms.formula} вместо переменной ${quantificationAxioms.variable}`;
                 }
             }
 
             let induction = this.checkInduction(leftArg, rightArg);
             if (induction.variable !== undefined) {
-                return "Сх. акс. A9";
+                return `Сх. акс. A9`;
             }
         }
 
         let [mp1, mp2] = this.checkModusPonens(expression);
         if (mp1 !== mp2) {
-            return "M.P. " + (mp1 + 1) + ", " + (mp2 + 1);
+            return `M.P. ${mp1 + 1}, ${mp2 + 1}`;
         }
 
-        for (let i = 0, array = this.logicAxioms; i < array.length; i++) {
+        for (let i = 0, array = Checker.logicAxioms; i < array.length; i++) {
             if (this.compareTrees(expression, array[i])) {
-                return "Сх. акс. " + (i + 1);
+                return `Сх. акс. ${i + 1}`;
             }
         }
 
-        for (let i = 0, array = this.mathAxioms; i < array.length; i++) {
+        for (let i = 0, array = Checker.mathAxioms; i < array.length; i++) {
             if (this.compareTrees(expression, array[i])) {
-                return "Сх. акс. A" + (i + 1);
+                return `Сх. акс. A${i + 1}`;
             }
         }
 
         for (let i = 0, array = this.hypotheses; i < array.length; i++) {
             if (expression.string === array[i].string) {
-                return "Предп. " + (i + 1);
+                return `Предп. ${i + 1}`;
             }
         }
 
         throw new Error(errorText);
-    },
-    checkModusPonens: function (expression) {
+    }
+
+    checkModusPonens(expression) {
         // A, A->B => B
-        let index = this.expressions.length;
-        let MPInfo = this.MP[expression.string];
-        if (MPInfo !== undefined) {
-            for (let i = 0; i < MPInfo.length; i++) {
-                let leftIndex = this.expressionsIndex[MPInfo[i].left];
+        let index = this.expressions.length, modusPonens = this.MP[expression.string];
+        if (modusPonens !== undefined) {
+            for (let i = 0; i < modusPonens.length; i++) {
+                let leftIndex = this.expressionsIndex[modusPonens[i].left];
                 if (leftIndex !== undefined && leftIndex !== index) {
-                    return [leftIndex, MPInfo[i].full];
+                    return [leftIndex, modusPonens[i].full];
                 }
             }
         }
         return [-1, -1];
-    },
-    checkQuantification: function (left, right, checkDeduction = false) {
+    }
+
+    checkQuantification(left, right, checkDeduction = false) {
         // If there is no free 'x' in 'A'
         // B->A => ∃xB->A
         // A->B => A->∀xB
@@ -515,8 +481,9 @@ Checker.prototype = {
             }
         }
         return result;
-    },
-    checkQuantificationAxioms: function (left, right) {
+    }
+
+    checkQuantificationAxioms(left, right) {
         // Пусть θ свободно для подстановки вместо x в A.
         // (11) ∀xA->A[x := θ]
         // (12) A[x := θ]->∃xA
@@ -570,8 +537,9 @@ Checker.prototype = {
             }
         }
         return result;
-    },
-    checkInduction: function (leftArg, rightArg) {
+    }
+
+    checkInduction(leftArg, rightArg) {
         // (A9) A[x := 0] & ∀x(A->A[x := x'])->A
         // x — некоторая переменная, входящая свободно в A
         if (leftArg.key !== "&") {
@@ -614,8 +582,9 @@ Checker.prototype = {
         return {
             variable: variable.string
         };
-    },
-    compareTrees: function (expression, axiom, variables = {}, boundVariables = {}, fixedVariable) {
+    }
+
+    compareTrees(expression, axiom, variables = {}, boundVariables = {}, fixedVariable) {
         if (expression === undefined || axiom === undefined) {
             return false;
         }
@@ -656,30 +625,43 @@ Checker.prototype = {
         }
         return false;
     }
-};
+}
 
-String.prototype.splitExpressions = function (separator) {
-    let arr = [], buffer = "", count = 0;
-    for (let i = 0; i < this.length; ++i) {
-        if (this.charAt(i) === "(") count++;
-        if (this.charAt(i) === ")") count--;
-        if (count === 0 && this.charAt(i) === separator) {
-            arr.push(buffer);
-            buffer = "";
-        } else {
-            buffer += this.charAt(i);
-        }
-        if (i === this.length - 1 && buffer.length > 0) arr.push(buffer);
-    }
-    return arr;
-};
+Checker.logicAxioms = [
+    "A->B->A",                    // 1
+    "(A->B)->(A->B->C)->(A->C)",  // 2
+    "A->B->A&B",                  // 3
+    "A&B->A",                     // 4
+    "A&B->B",                     // 5
+    "A->A|B",                     // 6
+    "B->A|B",                     // 7
+    "(A->C)->(B->C)->(A|B->C)",   // 8
+    "(A->B)->(A->!B)->!A",        // 9
+    "!!A->A"                      // 10
+].map(e => new Parser(e).parseExpression());
 
-const fs = require("fs"), timer = "Время выполнения";
-console.time(timer);
-let readLines = (file) => fs.readFileSync(file, "utf-8").split("\n").map(s => s.replace(/\s+/g, "")).filter(s => s.length > 0),
-    writeLines = (file, data) => fs.writeFileSync(file, data.join("\n"), "utf-8");
-let anyDeduction = readLines("any.proof"), existsDeduction = readLines("exists.proof");
-let data = readLines(inputFile), [hypotheses, result] = data.shift().split("|-");
-let checker = new Checker(hypotheses.splitExpressions(","), data, result);
-writeLines(outputFile, mode === "check" ? checker.checkProof() : checker.deduceProof(anyDeduction, existsDeduction));
-console.timeEnd(timer);
+Checker.mathAxioms = [
+    "a=b->a'=b'",                 // A1
+    "(a=b)->(a=c)->(b=c)",        // A2
+    "a'=b'->a=b",                 // A3
+    "!a'=0",                      // A4
+    "a+b'=(a+b)'",                // A5
+    "a+0=a",                      // A6
+    "a*0=0",                      // A7
+    "a*b'=a*b+a"                  // A8
+].map(e => new Parser(e).parseExpression());
+
+const readLines = (file) => fs.readFileSync(file, "utf-8").split(newLine).map(s => s.replace(/\s+/g, "")).filter(s => s.length > 0),
+    writeLines = (file, data) => fs.writeFileSync(file, data.join(newLine), "utf-8");
+
+Checker.anyDeduction = readLines("any.proof").map(e => new Parser(e).parseExpression());
+Checker.existsDeduction = readLines("exists.proof").map(e => new Parser(e).parseExpression());
+Checker.selfDeduction = readLines("self.proof").map(e => new Parser(e).parseExpression());
+Checker.modusPonensDeduction = readLines("modusponens.proof").map(e => new Parser(e).parseExpression());
+Checker.axiomDeduction = readLines("axiom.proof").map(e => new Parser(e).parseExpression());
+
+let data = readLines(inputFile), [hypotheses, result] = data.shift().split("|-"),
+    checker = new Checker(hypotheses, data, result);
+writeLines(outputFile, mode === "check" ? checker.checkProof() : checker.deduceProof());
+
+console.timeEnd(processingTime);
