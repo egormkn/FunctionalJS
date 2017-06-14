@@ -318,6 +318,45 @@ class Checker {
         return proof;
     }
 
+    simplifyProof() {
+        this.MP = {};
+        this.expressions = [];
+        this.expressionsIndex = {};
+        let usedExpressions = {}, usedHypotheses = {}, results = [];
+        for (let i = 0; i < this.expressionsData.length; i++) {
+            let result = `Не доказано`;
+            try {
+                result = this.checkExpression(i, false);
+            } catch (error) {
+                console.log(`Ошибка в доказательстве формулы номер ${i + 1}: ${error.message}`);
+            }
+            results.push(result);
+        }
+
+        let needed = [], queue = [];
+        for (let i = 0; i < results.length; i++) {
+            needed.push(false);
+        }
+        queue.push(this.expressionsData.length - 1);
+        while (queue.length > 0) {
+            let head = queue.shift();
+            needed[head] = true;
+            if (results[head].startsWith("Пр. вывода")) {
+                let num = results[head].substring("Пр. вывода # из ".length)
+            } else if (results[i].startsWith("M.P. ")) {
+                let mp2 = results[i].substring("M.P. ".length).split(", ")[1];
+
+            } else if (results[i].startsWith("Предп. ")) {
+
+            } else if (results[i].startsWith("Сх. акс.")) {
+
+            } else {
+                throw new Error("Ошибка при выводе дедукции");
+            }
+        }
+        return proof;
+    }
+
     deduceProof() {
         this.MP = {};
         this.expressions = [];

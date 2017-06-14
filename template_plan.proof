@@ -1,0 +1,72 @@
+|-(a+0')*(a+0')=a*a+0''*a+0'
+
+!!A->A
+0=0->0=0->0=0
+a=b->a'=b'
+
+a=b->b=a                 // template1.proof
+a+0'=a'                  // template2.proof
+t'=t+0'                  // template3.proof
+t=r->t+s=r+s             // template4.proof
+t*s=s*t                  // template5.proof
+t=r->t*s=r*s             // template6.proof
+(a+0')*(a+0')=a'*a'      // template7.proof
+t+s=s+t                  // template8.proof
+x+(y+z)=(x+y)+z          // template9.proof
+a'*a'=a*a+a+a+0'         // template10.proof
+(a+0')*(a+0')=a*a+a+a+0' // template11.proof
+
+// template1.proof:
+|- @a@b(a=b->b=a)
+
+// template2.proof:
+@a@b(a=b->b=a) 
+|- @a(a+0'=a')
+
+// template3.proof:
+@a@b(a=b->b=a)
+@a(a+0'=a') 
+|- @t(t'=t+0')
+
+// template4.proof:
+|- t=r->t+s=r+s
+
+// template5.proof:
+|- t*r=r*t
+
+// template6.proof:
+|- t=r->t*s=r*s
+
+// template7.proof:
+a+0'=a'
+@t@r@s(t=r->t*s=r*s)
+@a@b(a=b->b=a)
+@t@s(t*s=s*t)
+|- @a((a+0')*(a+0')=a'*a')
+
+// template8.proof:
+|- x+y=y+x
+
+// template9.proof:
+|- x+(y+z)=(x+y)+z
+
+// template10.proof:
+@a@b(a*b')=(a*b+a)
+@t@s(t*s=s*t)
+@t@r@s(t=r->t+s=r+s)
+@a@b(a=b->b=a)
+@t@s(t+s=s+t)
+@s(a*a+s=s+a*a)->(a*a+a+a'=a+a'+a*a)
+@a@b(a+b'=(a+b)')
+@t(t'=t+0')
+x+y=y+x
+@x@y((x+y)=(y+x))->@y((a+a'+y)=(y+a+a'))
+@a@b@c(a=b->a=c->b=c)
+@t@s(t+s=s+t)->@s(a+a+0'+s=s+a+a+0')
+|- a'*a'=a*a+a+a+0'
+
+// template11.proof:
+@a@b(a=b->b=a)
+a'*a'=(a+0')*(a+0')
+a'*a'=a*a+a+a+0'
+|- (a+0')*(a+0')=a*a+a+a+0'
