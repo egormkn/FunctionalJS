@@ -2,7 +2,7 @@
 
 const inputFile = process.argv[2] || "task2.in",
     outputFile = process.argv[3] || "task2.out",
-    mode = process.argv[4] || "check";
+    mode = process.argv[4] || "deduce";
 
 const fs = require("fs"), newLine = "\n", processingTime = "Время выполнения";
 
@@ -34,6 +34,9 @@ class Node {
                 return `${this.key}`;
             default:
                 if (this.isIncrement()) {
+                    if (this.args[0].isIncrement()) {
+                        return `${this.args[0].string}${"'".repeat(parseInt(this.key))}`;
+                    }
                     return `(${this.args[0].string})${"'".repeat(parseInt(this.key))}`;
                 } else if (this.isPredicate() || this.isVariable()) {
                     let args = this.args === undefined ? "" : `(${this.args.map(a => `(${a.string})`).join()})`;
