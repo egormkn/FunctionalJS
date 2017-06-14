@@ -1,4 +1,3 @@
-H->A->B
 H&A->H
 H&A->A
 (H->A->B)->H&A->H->A->B
